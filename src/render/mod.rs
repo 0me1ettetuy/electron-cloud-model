@@ -18,6 +18,9 @@ pub struct CloudNeedsRegeneration(pub bool);
 #[derive(Component)]
 struct ElectronParticle;
 
+#[derive(Component)]
+struct HudText;
+
 #[derive(Resource)]
 struct ParticleRenderAssets {
     mesh: Handle<Mesh>,
@@ -27,8 +30,8 @@ struct ParticleRenderAssets {
 impl Plugin for RenderPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(CloudNeedsRegeneration(true))
-            .add_systems(Startup, setup_scene)
-            .add_systems(Update, regenerate_cloud);
+            .add_systems(Startup, (setup_scene, setup_hud))
+            .add_systems(Update, (regenerate_cloud, update_hud));
     }
 }
 
@@ -91,6 +94,41 @@ fn setup_scene(
     ));
 }
 
+fn setup_hud(mut commands: Commands, params: Res<physics::OrbitalParams>) {
+    commands.spawn((
+        Camera2d,
+        Camera {
+            order: 1,
+            clear_color: ClearColorConfig::None,
+            ..default()
+        },
+        IsDefaultUiCamera,
+    ));
+
+    commands
+        .spawn((
+            Node {
+                position_type: PositionType::Absolute,
+                top: px(16.0),
+                left: px(16.0),
+                padding: UiRect::axes(px(14.0), px(10.0)),
+                max_width: px(320.0),
+                border_radius: BorderRadius::all(px(10.0)),
+                ..default()
+            },
+            BackgroundColor(Color::srgba(0.03, 0.05, 0.1, 0.82)),
+        ))
+        .with_child((
+            Text::new(build_hud_text(&params)),
+            TextFont {
+                font_size: 18.0,
+                ..default()
+            },
+            TextColor(Color::srgb(0.9, 0.95, 1.0)),
+            HudText,
+        ));
+}
+
 fn regenerate_cloud(
     mut commands: Commands,
     params: Res<physics::OrbitalParams>,
@@ -118,4 +156,19 @@ fn regenerate_cloud(
     }
 
     needs_regeneration.0 = false;
+}
+
+fn update_hud(params: Res<physics::OrbitalParams>, mut hud_text: Single<&mut Text, With<HudText>>) {
+    if !params.is_changed() {
+        return;
+    }
+
+    hud_text.0 = build_hud_text(&params);
+}
+
+fn build_hud_text(params: &physics::OrbitalParams) -> String {
+    format!(
+        "Electron Cloud Model\nn: {}   l: {}   m: {}\nparticles: {}\n\nControls\nR: regenerate cloud\nUp: add 250 particles\nDown: remove 250 particles",
+        params.n, params.l, params.m, params.particle_count
+    )
 }
