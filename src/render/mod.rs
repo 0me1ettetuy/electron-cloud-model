@@ -168,7 +168,11 @@ fn update_hud(params: Res<physics::OrbitalParams>, mut hud_text: Single<&mut Tex
 
 fn build_hud_text(params: &physics::OrbitalParams) -> String {
     format!(
-        "Electron Cloud Model\nn: {}   l: {}   m: {}\nparticles: {}\n\nControls\nR: regenerate cloud\nUp: add 250 particles\nDown: remove 250 particles",
-        params.n, params.l, params.m, params.particle_count
+        "Electron Cloud Model\nn: {}   l: {}   m: {}\nparticles: {}\nrendered cloud: {}\n\nControls\nR: regenerate cloud\nLeft / Right: change n\nA / D: change l\nS / W: change m\nUp: add 250 particles\nDown: remove 250 particles",
+        params.n,
+        params.l,
+        params.m,
+        params.particle_count,
+        physics::rendered_cloud_label(params)
     )
 }
