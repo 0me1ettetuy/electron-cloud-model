@@ -2260,6 +2260,7 @@ name = "electron-cloud-model"
 version = "0.1.0"
 dependencies = [
  "bevy",
+ "rand",
 ]
 
 [[package]]
