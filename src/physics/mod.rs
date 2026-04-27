@@ -6,16 +6,45 @@
 //! - probability density helpers
 //! - probability-flow animation logic
 
-use bevy::prelude::Vec3;
+use bevy::prelude::{Resource, Vec3};
 use rand::Rng;
 
 const BOHR_RADIUS_SCALE: f32 = 1.5;
+
+#[derive(Resource, Clone)]
+pub struct OrbitalParams {
+    pub n: u32,
+    pub l: u32,
+    pub m: i32,
+    pub particle_count: usize,
+}
+
+impl Default for OrbitalParams {
+    fn default() -> Self {
+        Self {
+            n: 1,
+            l: 0,
+            m: 0,
+            particle_count: 1_500,
+        }
+    }
+}
 
 pub struct OrbitalPoint {
     pub position: Vec3,
 }
 
-pub fn generate_1s_cloud(count: usize) -> Vec<OrbitalPoint> {
+pub fn generate_cloud(params: &OrbitalParams) -> Vec<OrbitalPoint> {
+    // We only support 1s right now, so unsupported values fall back to 1s
+    // while still letting the app adopt the future parameter shape now.
+    if params.n != 1 || params.l != 0 || params.m != 0 {
+        return generate_1s_cloud(params.particle_count);
+    }
+
+    generate_1s_cloud(params.particle_count)
+}
+
+fn generate_1s_cloud(count: usize) -> Vec<OrbitalPoint> {
     let mut rng = rand::rng();
     let mut points = Vec::with_capacity(count);
 
