@@ -42,10 +42,15 @@ Important clarification:
 Long-term feature targets:
 
 - 3D realtime orbital cloud viewer
-- 2D Bohr-style teaching/demo mode
 - raytraced or raytrace-like presentation mode
 - controls for quantum numbers and particle counts
 - browser/WASM build as a first-class target
+
+Current focus clarification:
+
+- the immediate goal is the `atom_realtime.cpp` experience from `Atoms`
+- the 2D Bohr-style mode is currently not needed for the active workstream
+- the raytracer may still be needed later, but it is not the current implementation target
 
 ## Platform Direction
 
@@ -122,7 +127,7 @@ This structure is allowed to evolve if the real implementation suggests somethin
 
 ### Phase 1: Rust Project Base
 
-Status: started
+Status: done
 
 Goal:
 
@@ -137,6 +142,8 @@ Deliverables:
 - compilable placeholder app
 
 ### Phase 2: Realtime Orbital Viewer MVP
+
+Status: in progress
 
 Goal:
 
@@ -166,6 +173,8 @@ Do not prioritize yet:
 
 ### Phase 3: Controls and UI
 
+Status: in progress
+
 Goal:
 
 - add controls for:
@@ -179,6 +188,8 @@ Goal:
 
 ### Phase 4: Probability-Flow Animation
 
+Status: in progress
+
 Goal:
 
 - animate particles using the probability-flow logic
@@ -191,6 +202,8 @@ Core C++ reference:
 
 ### Phase 5: 2D Bohr Mode
 
+Status: deferred
+
 Goal:
 
 - rebuild the simpler 2D atom demo
@@ -201,6 +214,8 @@ Core C++ reference:
 - `Atoms/src/atom.cpp`
 
 ### Phase 6: Raytraced Mode
+
+Status: not started
 
 Goal:
 
@@ -234,13 +249,115 @@ We should learn only the next piece needed for the next milestone.
 
 ## Near-Term Priority
 
-The next implementation focus is still Phase 2, but with the browser target in mind:
+The next implementation focus is still Phase 2 and `atom_realtime.cpp` parity, but with the browser target in mind:
 
 - confirm or choose the rendering stack
 - make sure the stack supports WASM well
 - create a real app entry point
 - port orbital point generation from the C++ realtime mode first
 - get a minimal cloud visible before adding many controls
+
+## Current Status Snapshot
+
+The Rust app is no longer a placeholder scene.
+It now has a functioning realtime 3D orbital viewer with generic orbital sampling.
+
+Current implemented pieces:
+
+- generic hydrogen-orbital sampling driven by valid `n`, `l`, and `m`
+- radial CDF sampling
+- theta CDF sampling
+- uniform `phi` sampling
+- spherical-to-cartesian conversion
+- first-pass probability-flow animation ported from `calculateProbabilityFlow(...)`
+- fixed-step probability-flow updates for more stable parity tuning
+- pause and resume flow animation
+- live flow-speed tuning controls
+- explicit regenerate-vs-animate controls
+- combined cloud-mesh rendering instead of one entity per particle
+- on-screen HUD
+- realtime-style keyboard controls for `n`, `l`, `m`, and particle count
+- mouse orbit camera and mouse-wheel zoom
+- per-particle color derived from orbital intensity
+- optional display mode toggle:
+  - spherical density
+  - real orbital basis for `p` and `d` orbitals
+
+Current source responsibilities:
+
+- `src/app.rs`
+  - top-level app setup
+  - parity-oriented input handling
+- `src/render/mod.rs`
+  - scene setup
+  - combined cloud-mesh building/regeneration
+  - per-frame particle animation
+  - HUD
+  - orbit camera controls
+- `src/physics/mod.rs`
+  - generic orbital sampling
+  - display-mode branching
+  - orbital intensity coloring
+  - probability-flow velocity/update logic
+
+## Realtime Parity Notes
+
+The active parity target is `../Atoms/src/atom_realtime.cpp`.
+
+Areas that now match reasonably well in structure:
+
+- generic `n/l/m` orbital generation
+- quantum-number clamping
+- radial/theta/phi sampling pipeline
+- realtime controls concept
+- orbit-style camera interaction
+
+Important remaining gaps versus `atom_realtime.cpp`:
+
+- probability-flow animation is ported, but the motion feel may still need tuning against the C++ app
+- color mapping is ported in spirit, but may still need visual tuning against the C++ output
+- camera feel and visual scale may still need tuning against the C++ app
+- we have removed one-entity-per-particle rendering, but still need real-world performance testing and likely more optimization for large particle counts
+
+## Display Mode Decision
+
+Two display modes currently exist in Rust:
+
+- `SphericalDensity`
+  - this is the closer match to the `Atoms` probability-density interpretation
+- `RealOrbitalBasis`
+  - this is a display-friendly mode for recognizable `p` and `d` shapes
+
+For strict `Atoms` parity work:
+
+- keep `SphericalDensity` as the default and reference mode
+- treat `RealOrbitalBasis` as an optional visualization aid, not the parity baseline
+
+## Next Recommended Step
+
+The next implementation target should still stay inside realtime parity work, but shift from "add motion" to "tune and scale motion":
+
+- compare flow speed, orbit size, and camera feel directly against `../Atoms/src/atom_realtime.cpp`
+- tune the Bevy-side probability-flow speed so browser and native builds feel closer to the C++ reference
+  - the app now has live speed controls, so this can be done interactively before editing constants
+- replace one-entity-per-particle rendering with a more scalable approach once parity tuning confirms the desired behavior
+
+Why this is next:
+
+- the major missing behavior gap is no longer static-vs-animated particles
+- the most obvious remaining parity risks are visual feel and particle-count scalability
+- performance improvements will matter even more before pushing further toward browser-first WASM delivery
+
+## New Chat Handoff
+
+If a future session starts fresh, assume all of the following are already true:
+
+- generic orbital sampling is implemented in Rust
+- first-pass probability-flow animation is implemented in Rust
+- the current target is `atom_realtime.cpp`, not the 2D mode
+- the raytracer is postponed until after realtime parity is stronger
+- the next best step is parity tuning plus more scalable particle rendering
+- the first files to inspect for next work are `src/render/mod.rs` and `src/physics/mod.rs`
 
 ## Session Assumptions
 
