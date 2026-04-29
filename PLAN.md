@@ -43,7 +43,7 @@ Long-term feature targets:
 
 - 3D realtime orbital cloud viewer
 - raytraced or raytrace-like presentation mode
-- controls for quantum numbers and particle counts
+- controls for quantum numbers and core view actions
 - browser/WASM build as a first-class target
 
 Current focus clarification:
@@ -51,6 +51,68 @@ Current focus clarification:
 - the immediate goal is the `atom_realtime.cpp` experience from `Atoms`
 - the 2D Bohr-style mode is currently not needed for the active workstream
 - the raytracer may still be needed later, but it is not the current implementation target
+
+## Live Web Reference
+
+Related visual and UX reference:
+
+- `https://www.kavang.com/atom`
+
+This site is related to the `Atoms` project and is a useful browser target for:
+
+- control layout and browser embedding expectations
+- clipping controls
+- color-scale controls
+- overall composition and interaction feel
+
+Important clarification:
+
+- it is a strong product reference, especially for browser delivery
+- it is not a literal runtime of the native C++ app
+- when the web reference and `atom_realtime.cpp` differ, treat the C++ app as the physics/parity reference and the website as the browser UX reference
+
+Current implementation note from inspection of the live site:
+
+- the live site is a Next.js/React app
+- it uses a Three.js-based canvas through React Three Fiber
+- it fetches precomputed orbital JSON files such as `/orbitals/n4_l3_m1.json`
+- clipping and color-scale behavior are applied in the frontend viewer
+
+That means the live site is best treated as a browser product reference, not as proof that the orbital generation is already running live in WASM.
+
+## Website Modes
+
+For the browser product, plan around two web modes:
+
+### Mode A: Precomputed Web Viewer
+
+Goal:
+
+- match the current `kavang.com/atom` product shape quickly
+- use React UI plus a web renderer
+- load precomputed orbital datasets by `n/l/m`
+- support clipping and color-scale controls in the browser
+
+Why keep this mode:
+
+- it is the fastest path to a polished web experience
+- it matches the live site's current implementation style
+- it gives the React app a stable product target while Rust work continues
+
+### Mode B: Rust Runtime Web Viewer
+
+Goal:
+
+- run the orbital generation and viewer logic from Rust
+- target `wasm32-unknown-unknown`
+- expose state and commands to a React host
+- eventually reduce or replace dependence on precomputed orbital assets
+
+Why keep this mode:
+
+- it preserves the repo's long-term identity as the Rust rewrite of `Atoms`
+- it keeps feature and behavior parity work inside the Rust codebase
+- it is the better long-term architecture if Rust is meant to be the real runtime
 
 ## Platform Direction
 
@@ -171,20 +233,80 @@ Do not prioritize yet:
 - full UI polish
 - 2D mode
 
-### Phase 3: Controls and UI
+### Phase 3: Browser Controls and Host API
 
 Status: in progress
 
 Goal:
 
-- add controls for:
+- remove the temporary in-engine HUD from the target product path
+- expose app state and commands so a React host can own the UI
+- match the browser-facing control model more closely to `https://www.kavang.com/atom`
+- keep native keyboard controls only as a local debugging fallback
+
+Browser-facing controls to support:
+
+- `n`
+- `l`
+- `m`
+- regenerate
+- display mode toggle
+- camera reset
+- orbit drag
+- zoom
+
+Required host integration deliverables:
+
+- a serializable "HUD/app state" snapshot API for the host UI
+- command APIs for changing orbital and render settings from JavaScript/React
+- a clear boundary between:
+  - Rust simulation and rendering
+  - React controls and browser UI
+- no dependency on Bevy UI for the shipped browser experience
+
+### Phase 3A: Precomputed Web Mode
+
+Status: not started
+
+Goal:
+
+- build a React-hosted browser viewer that follows the live site's shape
+- load precomputed orbital datasets by `n/l/m`
+- support the smaller browser control set for orbital changes and core view actions
+- keep this mode usable even before Rust/WASM host integration is finished
+
+Key deliverables:
+
+- React project shell
+- web renderer for precomputed particle data
+- orbital JSON loading contract
+- browser controls for:
   - `n`
   - `l`
   - `m`
-  - particle count
-- show current values on screen
-- support regenerate-on-change behavior
-- keep UI compatible with browser/WASM delivery
+  - regenerate
+  - display mode toggle
+  - camera reset
+  - orbit drag
+  - zoom
+
+### Phase 3B: Rust/WASM Web Mode
+
+Status: not started
+
+Goal:
+
+- compile the Rust viewer/runtime for the browser
+- replace the temporary Bevy HUD with host-driven controls
+- expose Rust state and command APIs to React
+- allow the React app to switch between or compare the two web modes if desired
+
+Key deliverables:
+
+- confirmed `wasm32-unknown-unknown` build path
+- host-readable state snapshot API
+- host-to-Rust commands for orbital and render settings
+- browser embedding strategy for the Rust canvas/runtime
 
 ### Phase 4: Probability-Flow Animation
 
@@ -193,8 +315,8 @@ Status: in progress
 Goal:
 
 - animate particles using the probability-flow logic
-- allow pause and resume
-- allow regenerate vs animate behavior
+- keep the current fixed animation behavior stable
+- allow regeneration without breaking the motion path
 
 Core C++ reference:
 
@@ -249,13 +371,13 @@ We should learn only the next piece needed for the next milestone.
 
 ## Near-Term Priority
 
-The next implementation focus is still Phase 2 and `atom_realtime.cpp` parity, but with the browser target in mind:
+The next implementation focus is now browser-first delivery with two tracks:
 
-- confirm or choose the rendering stack
-- make sure the stack supports WASM well
-- create a real app entry point
-- port orbital point generation from the C++ realtime mode first
-- get a minimal cloud visible before adding many controls
+- start the React web product using the precomputed-data mode
+- define the data contract for orbital JSON files and browser controls
+- keep the Rust app as the source of physics/parity work
+- prepare a later Rust/WASM integration path without blocking the faster web mode
+- avoid spending more time on temporary in-engine UI
 
 ## Current Status Snapshot
 
@@ -271,12 +393,10 @@ Current implemented pieces:
 - spherical-to-cartesian conversion
 - first-pass probability-flow animation ported from `calculateProbabilityFlow(...)`
 - fixed-step probability-flow updates for more stable parity tuning
-- pause and resume flow animation
-- live flow-speed tuning controls
-- explicit regenerate-vs-animate controls
+- explicit regenerate control
 - combined cloud-mesh rendering instead of one entity per particle
-- on-screen HUD
-- realtime-style keyboard controls for `n`, `l`, `m`, and particle count
+- temporary on-screen HUD for native debugging
+- realtime-style keyboard controls for `n`, `l`, `m`
 - mouse orbit camera and mouse-wheel zoom
 - per-particle color derived from orbital intensity
 - optional display mode toggle:
@@ -287,12 +407,12 @@ Current source responsibilities:
 
 - `src/app.rs`
   - top-level app setup
-  - parity-oriented input handling
+  - temporary native input handling for local debugging
 - `src/render/mod.rs`
   - scene setup
   - combined cloud-mesh building/regeneration
   - per-frame particle animation
-  - HUD
+  - temporary HUD
   - orbit camera controls
 - `src/physics/mod.rs`
   - generic orbital sampling
@@ -319,6 +439,15 @@ Important remaining gaps versus `atom_realtime.cpp`:
 - camera feel and visual scale may still need tuning against the C++ app
 - we have removed one-entity-per-particle rendering, but still need real-world performance testing and likely more optimization for large particle counts
 
+Important remaining gaps versus the browser target:
+
+- no confirmed WASM build path is in place yet
+- no React/JavaScript host API exists yet for reading app state or sending commands
+- the current Bevy HUD is still present even though it should not be part of the shipped browser UI
+- the current control scheme is still keyboard-first instead of browser UI-first
+- no precomputed orbital export pipeline or web data contract has been defined yet
+- no React project exists yet for either web mode
+
 ## Display Mode Decision
 
 Two display modes currently exist in Rust:
@@ -335,18 +464,29 @@ For strict `Atoms` parity work:
 
 ## Next Recommended Step
 
-The next implementation target should still stay inside realtime parity work, but shift from "add motion" to "tune and scale motion":
+The next implementation target should be the React web project with explicit dual modes:
 
-- compare flow speed, orbit size, and camera feel directly against `../Atoms/src/atom_realtime.cpp`
-- tune the Bevy-side probability-flow speed so browser and native builds feel closer to the C++ reference
-  - the app now has live speed controls, so this can be done interactively before editing constants
-- replace one-entity-per-particle rendering with a more scalable approach once parity tuning confirms the desired behavior
+- Mode A:
+  - build the faster precomputed-data web viewer first
+  - use it to match the live site's browser UX quickly
+- Mode B:
+  - continue preparing Rust for eventual WASM host integration
+  - do not block the web product on this path
+
+Concrete next tasks:
+
+- create the React project
+- define the orbital JSON schema the web viewer will consume
+- decide whether the Rust repo will export those JSON files directly or whether a separate exporter script will
+- remove the Bevy HUD from the product plan and treat it as debug-only
+- keep the Rust code focused on parity, data generation, and future WASM readiness
 
 Why this is next:
 
-- the major missing behavior gap is no longer static-vs-animated particles
-- the most obvious remaining parity risks are visual feel and particle-count scalability
-- performance improvements will matter even more before pushing further toward browser-first WASM delivery
+- it gives the fastest path to a working website
+- it matches the current live site's implementation style
+- it still leaves room for Rust/WASM as a second web mode instead of forcing an early all-or-nothing choice
+- it prevents the React project from waiting on unfinished Rust host APIs
 
 ## New Chat Handoff
 
@@ -356,8 +496,12 @@ If a future session starts fresh, assume all of the following are already true:
 - first-pass probability-flow animation is implemented in Rust
 - the current target is `atom_realtime.cpp`, not the 2D mode
 - the raytracer is postponed until after realtime parity is stronger
-- the next best step is parity tuning plus more scalable particle rendering
-- the first files to inspect for next work are `src/render/mod.rs` and `src/physics/mod.rs`
+- the current Bevy HUD is temporary and should be removed from the shipped browser experience
+- the website should support two modes:
+  - a faster precomputed-data web mode
+  - a longer-term Rust/WASM web mode
+- the next best step is to start the React project and define the data/API boundary
+- the first files to inspect for next work are `src/app.rs`, `src/render/mod.rs`, and `src/physics/mod.rs`
 
 ## Session Assumptions
 

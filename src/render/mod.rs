@@ -27,8 +27,27 @@ const WEB_CAMERA_FOV_DEGREES: f32 = 55.0;
 const WEB_CAMERA_FAR: f32 = 1000.0;
 const PARTICLE_TEMPLATE_RADIUS: f32 = 0.20;
 
+#[derive(Clone, Default)]
+pub struct WindowHostConfig {
+    pub canvas_selector: Option<String>,
+}
+
 #[derive(Resource)]
 pub struct CloudNeedsRegeneration(pub bool);
+
+#[derive(Resource)]
+pub struct RenderUiConfig {
+    pub show_hud: bool,
+}
+
+impl Default for RenderUiConfig {
+    fn default() -> Self {
+        Self { show_hud: false }
+    }
+}
+
+#[derive(Resource, Default)]
+pub struct PendingCameraReset(pub bool);
 
 #[derive(Resource, Default)]
 struct FlowSimulationClock {
@@ -88,6 +107,8 @@ struct OrbitCamera {
 impl Plugin for RenderPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(CloudNeedsRegeneration(true))
+            .insert_resource(RenderUiConfig::default())
+            .insert_resource(PendingCameraReset::default())
             .insert_resource(FlowSimulationClock::default())
             .add_systems(Startup, (setup_scene, setup_hud))
             .add_systems(
@@ -104,11 +125,12 @@ impl Plugin for RenderPlugin {
     }
 }
 
-pub fn window_plugin() -> WindowPlugin {
+pub fn window_plugin(window_host: &WindowHostConfig) -> WindowPlugin {
     WindowPlugin {
         primary_window: Some(Window {
             title: "Electron Cloud Model".into(),
             resolution: WindowResolution::new(1280, 720),
+            canvas: window_host.canvas_selector.clone(),
             ..default()
         }),
         ..default()
@@ -191,10 +213,14 @@ fn setup_scene(
 
 fn setup_hud(
     mut commands: Commands,
+    ui_config: Res<RenderUiConfig>,
     params: Res<physics::OrbitalParams>,
     display_mode: Res<physics::DisplayMode>,
-    flow_animation: Res<physics::FlowAnimation>,
 ) {
+    if !ui_config.show_hud {
+        return;
+    }
+
     commands.spawn((
         Camera2d,
         Camera {
@@ -219,7 +245,7 @@ fn setup_hud(
             BackgroundColor(Color::srgba(0.03, 0.05, 0.1, 0.82)),
         ))
         .with_child((
-            Text::new(build_hud_text(&params, *display_mode, *flow_animation)),
+            Text::new(build_hud_text(&params, *display_mode)),
             TextFont {
                 font_size: 18.0,
                 ..default()
@@ -240,7 +266,7 @@ fn animate_cloud(
     mut meshes: ResMut<Assets<Mesh>>,
     camera: Single<&Transform, With<Camera3d>>,
 ) {
-    if needs_regeneration.0 || flow_animation.paused {
+    if needs_regeneration.0 {
         return;
     }
 
@@ -339,9 +365,14 @@ fn refresh_cloud_cutaway(
 
 fn reset_orbit_camera(
     keyboard: Res<ButtonInput<KeyCode>>,
+    mut pending_camera_reset: ResMut<PendingCameraReset>,
     camera: Option<Single<(&mut Transform, &mut OrbitCamera)>>,
 ) {
-    if !keyboard.just_pressed(KeyCode::KeyC) {
+    if keyboard.just_pressed(KeyCode::KeyC) {
+        pending_camera_reset.0 = true;
+    }
+
+    if !pending_camera_reset.0 {
         return;
     }
 
@@ -352,6 +383,7 @@ fn reset_orbit_camera(
 
     *orbit_camera = default_orbit_camera();
     *transform = default_camera_transform();
+    pending_camera_reset.0 = false;
 }
 
 fn orbit_camera_controls(
@@ -386,36 +418,41 @@ fn orbit_camera_controls(
 }
 
 fn update_hud(
+    ui_config: Res<RenderUiConfig>,
     params: Res<physics::OrbitalParams>,
     display_mode: Res<physics::DisplayMode>,
-    flow_animation: Res<physics::FlowAnimation>,
-    mut hud_text: Single<&mut Text, With<HudText>>,
+    hud_text: Option<Single<&mut Text, With<HudText>>>,
 ) {
-    if !params.is_changed() && !display_mode.is_changed() && !flow_animation.is_changed() {
+    if !ui_config.show_hud {
         return;
     }
 
-    hud_text.0 = build_hud_text(&params, *display_mode, *flow_animation);
+    let Some(mut hud_text) = hud_text else {
+        return;
+    };
+
+    if !params.is_changed() && !display_mode.is_changed() {
+        return;
+    }
+
+    hud_text.0 = build_hud_text(&params, *display_mode);
 }
 
 fn build_hud_text(
     params: &physics::OrbitalParams,
     display_mode: physics::DisplayMode,
-    flow_animation: physics::FlowAnimation,
 ) -> String {
     let rendered_cloud = physics::rendered_cloud_label(params, display_mode);
 
     format!(
-        "Electron Cloud Model\nn: {}   l: {}   m: {}\nparticles: {}\nrendered cloud: {}\ndisplay mode: {}\nflow animation: {}\nflow speed: {:.2}x\nreference flow dt: {:.2}\nrender path: combined cloud mesh\nvisual style: black background + octant cutaway + 3-plane guides\nsampler: generic hydrogen CDF\n\nRealtime Controls\nW / S: change n\nE / D: change l\nR / F: change m\nT / G: change particle count\nQ: regenerate cloud\nV: toggle display mode\nSpace: pause / resume flow\nY / H: adjust flow speed\nC: reset camera\nMouse drag: orbit camera\nMouse wheel: zoom",
+        "Electron Cloud Model\nn: {}   l: {}   m: {}\nparticles: {}\nrendered cloud: {}\ndisplay mode: {}\nreference flow dt: {:.2}\nrender path: combined cloud mesh\nvisual style: black background + octant cutaway + 3-plane guides\nsampler: generic hydrogen CDF\n\nDebug Controls\nW / S: change n\nE / D: change l\nR / F: change m\nT / G: change particle count\nQ: regenerate cloud\nV: toggle display mode\nC: reset camera\nMouse drag: orbit camera\nMouse wheel: zoom",
         params.n,
         params.l,
         params.m,
         params.particle_count,
         rendered_cloud,
         display_mode.label(),
-        flow_animation.status_label(),
-        flow_animation.speed_multiplier,
-        flow_animation.flow_step_dt()
+        physics::FlowAnimation.flow_step_dt()
     )
 }
 

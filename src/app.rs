@@ -1,26 +1,59 @@
 use bevy::prelude::*;
 
-use crate::{physics, render};
+use crate::{host_api, physics, render};
 
 const PARTICLE_COUNT_STEP: usize = 1_000;
-const FLOW_SPEED_STEP: f32 = 0.25;
 
-pub fn run() {
-    App::new()
-        .add_plugins(DefaultPlugins.set(render::window_plugin()))
+#[derive(Clone, Default)]
+pub struct AppConfig {
+    pub window_host: render::WindowHostConfig,
+}
+
+pub fn build_app() -> App {
+    build_app_with_config(AppConfig::default())
+}
+
+pub fn build_app_with_config(config: AppConfig) -> App {
+    let mut app = App::new();
+
+    app
+        .add_plugins(DefaultPlugins.set(render::window_plugin(&config.window_host)))
         .add_plugins(render::RenderPlugin)
         .insert_resource(physics::DisplayMode::default())
         .insert_resource(physics::FlowAnimation::default())
         .insert_resource(physics::OrbitalParams::default())
-        .add_systems(Update, handle_cloud_input)
-        .run();
+        .insert_resource(host_api::HostCommandQueue::default())
+        .insert_resource(host_api::HostSnapshot::default())
+        .add_systems(
+            Update,
+            (
+                host_api::apply_host_commands,
+                handle_cloud_input,
+                host_api::sync_host_snapshot,
+            )
+                .chain(),
+        );
+
+    #[cfg(target_arch = "wasm32")]
+    app.add_systems(
+        Update,
+        (
+            crate::wasm_api::pull_browser_commands,
+            crate::wasm_api::publish_browser_snapshot,
+        ),
+    );
+
+    app
+}
+
+pub fn run() {
+    build_app().run();
 }
 
 fn handle_cloud_input(
     keyboard: Res<ButtonInput<KeyCode>>,
     mut params: ResMut<physics::OrbitalParams>,
     mut display_mode: ResMut<physics::DisplayMode>,
-    mut flow_animation: ResMut<physics::FlowAnimation>,
     mut needs_regeneration: ResMut<render::CloudNeedsRegeneration>,
 ) {
     let mut changed = false;
@@ -73,30 +106,6 @@ fn handle_cloud_input(
     if keyboard.just_pressed(KeyCode::KeyG) && params.particle_count > PARTICLE_COUNT_STEP {
         params.particle_count -= PARTICLE_COUNT_STEP;
         changed = true;
-    }
-
-    if keyboard.just_pressed(KeyCode::Space) {
-        flow_animation.toggle_paused();
-        info!(
-            "Probability-flow animation is now {}",
-            flow_animation.status_label()
-        );
-    }
-
-    if keyboard.just_pressed(KeyCode::KeyY) {
-        flow_animation.adjust_speed(FLOW_SPEED_STEP);
-        info!(
-            "Probability-flow speed is now {:.2}x",
-            flow_animation.speed_multiplier
-        );
-    }
-
-    if keyboard.just_pressed(KeyCode::KeyH) {
-        flow_animation.adjust_speed(-FLOW_SPEED_STEP);
-        info!(
-            "Probability-flow speed is now {:.2}x",
-            flow_animation.speed_multiplier
-        );
     }
 
     if changed {

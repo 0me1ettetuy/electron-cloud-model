@@ -15,6 +15,9 @@ const BOHR_RADIUS_SCALE: f64 = 1.0;
 const RADIAL_CDF_SAMPLES: usize = 4096;
 const THETA_CDF_SAMPLES: usize = 2048;
 const PROBABILITY_FLOW_REFERENCE_DT: f32 = 0.5;
+const PROBABILITY_FLOW_RADIUS_SOFTENING: f64 = 0.75;
+const PROBABILITY_FLOW_SIN_THETA_FLOOR: f64 = 0.12;
+const PROBABILITY_FLOW_MAX_PHI_STEP_RADIANS: f64 = 0.12;
 const COLOR_DISTRIBUTION_LOWER_PERCENTILE: f32 = 0.05;
 const COLOR_DISTRIBUTION_UPPER_PERCENTILE: f32 = 0.95;
 
@@ -34,12 +37,12 @@ impl Default for OrbitalParams {
             l: 1,
             m: 0,
             // The web viewer ships precomputed clouds with 100k particles.
-            particle_count: 25_000,
+            particle_count: 100_000,
         }
     }
 }
 
-#[derive(Resource, Clone, Copy, PartialEq, Eq)]
+#[derive(Resource, Clone, Copy, PartialEq, Eq, Debug)]
 pub enum DisplayMode {
     SphericalDensity,
     RealOrbitalBasis,
@@ -67,40 +70,12 @@ impl DisplayMode {
     }
 }
 
-#[derive(Resource, Clone, Copy)]
-pub struct FlowAnimation {
-    pub paused: bool,
-    pub speed_multiplier: f32,
-}
-
-impl Default for FlowAnimation {
-    fn default() -> Self {
-        Self {
-            paused: false,
-            speed_multiplier: 1.0,
-        }
-    }
-}
+#[derive(Resource, Clone, Copy, Default)]
+pub struct FlowAnimation;
 
 impl FlowAnimation {
-    pub fn toggle_paused(&mut self) {
-        self.paused = !self.paused;
-    }
-
-    pub fn status_label(self) -> &'static str {
-        if self.paused {
-            "paused"
-        } else {
-            "running"
-        }
-    }
-
-    pub fn adjust_speed(&mut self, delta: f32) {
-        self.speed_multiplier = (self.speed_multiplier + delta).clamp(0.25, 4.0);
-    }
-
     pub fn flow_step_dt(self) -> f32 {
-        PROBABILITY_FLOW_REFERENCE_DT * self.speed_multiplier
+        PROBABILITY_FLOW_REFERENCE_DT
     }
 }
 
@@ -166,11 +141,33 @@ pub fn advance_probability_flow(
     }
 
     let theta = ((position.y as f64) / radius).clamp(-1.0, 1.0).acos();
+    let phi = (position.z as f64).atan2(position.x as f64);
     let velocity = probability_flow_velocity(position, params.m);
     let temp_position = position + velocity * flow_step_dt;
-    let new_phi = (temp_position.z as f64).atan2(temp_position.x as f64);
+    let proposed_phi = (temp_position.z as f64).atan2(temp_position.x as f64);
+    let phi_delta =
+        wrapped_angle_delta(proposed_phi - phi).clamp(
+            -PROBABILITY_FLOW_MAX_PHI_STEP_RADIANS,
+            PROBABILITY_FLOW_MAX_PHI_STEP_RADIANS,
+        );
+    let new_phi = phi + phi_delta;
 
     spherical_to_cartesian(radius, theta, new_phi)
+}
+
+pub fn probability_flow_omega(position: Vec3, params: &OrbitalParams, flow_step_dt: f32) -> f32 {
+    let radius = position.length() as f64;
+
+    if radius <= f64::EPSILON || params.m == 0 || flow_step_dt <= f32::EPSILON {
+        return 0.0;
+    }
+
+    let current_phi = (position.z as f64).atan2(position.x as f64);
+    let next_position = advance_probability_flow(position, params, flow_step_dt);
+    let next_phi = (next_position.z as f64).atan2(next_position.x as f64);
+    let phi_delta = wrapped_angle_delta(next_phi - current_phi);
+
+    (phi_delta as f32) / flow_step_dt
 }
 
 fn generate_spherical_density_cloud(params: &OrbitalParams) -> Vec<OrbitalPoint> {
@@ -389,17 +386,18 @@ fn probability_flow_velocity(position: Vec3, magnetic_quantum_number: i32) -> Ve
 
     let theta = ((position.y as f64) / radius).clamp(-1.0, 1.0).acos();
     let phi = (position.z as f64).atan2(position.x as f64);
-    let mut sin_theta = theta.sin();
-
-    if sin_theta.abs() < 1.0e-4 {
-        sin_theta = 1.0e-4;
-    }
-
-    let velocity_magnitude = magnetic_quantum_number as f64 / (radius * sin_theta);
+    let sin_theta = theta.sin().abs().max(PROBABILITY_FLOW_SIN_THETA_FLOOR);
+    let softened_radius = radius.max(PROBABILITY_FLOW_RADIUS_SOFTENING);
+    let velocity_magnitude = magnetic_quantum_number as f64 / (softened_radius * sin_theta);
     let vx = -velocity_magnitude * phi.sin();
     let vz = velocity_magnitude * phi.cos();
 
     Vec3::new(vx as f32, 0.0, vz as f32)
+}
+
+fn wrapped_angle_delta(delta: f64) -> f64 {
+    let tau = std::f64::consts::TAU;
+    (delta + std::f64::consts::PI).rem_euclid(tau) - std::f64::consts::PI
 }
 
 fn spherical_to_cartesian(radius: f64, theta: f64, phi: f64) -> Vec3 {
